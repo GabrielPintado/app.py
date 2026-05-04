@@ -3,69 +3,109 @@ import pandas as pd
 import seaborn as sns
 import matplotlib.pyplot as plt
 
-# Configuración de la página
-st.set_page_config(page_title="Explorador de Datos Pro", layout="wide")
+# Configuración inicial
+st.set_page_config(page_title="Data Pipeline Sequencer", layout="wide")
 
-st.title("📊 Data Explorer & Correlation Lab")
-st.markdown("""
-Esta aplicación permite cargar un archivo CSV para explorar sus dimensiones y 
-analizar la relación entre sus variables de forma dinámica.
-""")
+# Inicializar el estado de la etapa si no existe
+if 'etapa' not in st.session_state:
+    st.session_state.etapa = 0
 
-# --- Barra Lateral para Carga de Datos ---
-st.sidebar.header("Configuración")
-archivo_cargado = st.sidebar.file_uploader("Sube tu archivo CSV aquí", type=["csv"])
+def avanzar_etapa(nueva_etapa):
+    st.session_state.etapa = nueva_etapa
 
-if archivo_cargado is not None:
-    # Lectura de datos
-    df = pd.DataFrame()
-    try:
-        df = pd.read_csv(archivo_cargado)
-        st.success("✅ ¡Archivo cargado con éxito!")
-    except Exception as e:
-        st.error(f"Error al leer el archivo: {e}")
+# Título dinámico según la etapa
+st.title(f"🚀 Pipeline de Datos - Etapa {st.session_state.etapa}")
 
-    # --- Sección 1: Vista Previa ---
-    st.subheader("1. Vista previa de los datos (df.head)")
-    st.dataframe(df.head(), use_container_width=True)
+# ---------------------------------------------------------
+# ETAPA 0: CARGA DE DATOS
+# ---------------------------------------------------------
+st.header("Etapa 0: Carga de Datos")
+archivo = st.file_uploader("Sube tu archivo CSV", type=["csv"])
+
+if archivo is not None:
+    df = pd.read_csv(archivo)
+    st.success("Archivo cargado correctamente.")
+    st.subheader("df.head()")
+    st.dataframe(df.head())
     
-    # Métricas rápidas
-    col1, col2, col3 = st.columns(3)
-    col1.metric("Filas", df.shape[0])
-    col2.metric("Columnas", df.shape[1])
-    col3.metric("Valores Nulos", df.isna().sum().sum())
+    if st.session_state.etapa == 0:
+        if st.button("Confirmar carga y pasar a EDA"):
+            avanzar_etapa(1)
+            st.rerun()
+else:
+    st.info("Por favor, sube un archivo para comenzar.")
+    st.stop() # Detiene la ejecución hasta que haya un archivo
 
-    # --- Sección 2: Análisis de Correlación ---
+# ---------------------------------------------------------
+# ETAPA 1: EDA (Análisis Exploratorio)
+# ---------------------------------------------------------
+if st.session_state.etapa >= 1:
     st.divider()
-    st.subheader("2. Diagrama de Correlación Personalizado")
+    st.header("Etapa 1: Análisis Exploratorio (EDA)")
     
-    # Filtrar solo columnas numéricas para correlación
-    columnas_numericas = df.select_dtypes(include=['float64', 'int64']).columns.tolist()
+    col1, col2 = st.columns(2)
+    with col1:
+        st.write("**Dimensiones:**", df.shape)
+        st.write("**Tipos de datos:**")
+        st.write(df.dtypes)
+    with col2:
+        st.write("**Resumen Estadístico:**")
+        st.write(df.describe())
+
+    if st.session_state.etapa == 1:
+        if st.button("Pasar a Limpieza"):
+            avanzar_etapa(2)
+            st.rerun()
+
+# ---------------------------------------------------------
+# ETAPA 2: LIMPIEZA
+# ---------------------------------------------------------
+if st.session_state.etapa >= 2:
+    st.divider()
+    st.header("Etapa 2: Limpieza de Datos")
     
-    if len(columnas_numericas) > 1:
+    nulos = df.isnull().sum()
+    st.write("Valores nulos por columna:")
+    st.write(nulos[nulos > 0] if nulos.sum() > 0 else "No se detectaron valores nulos.")
+    
+    # Simulación de limpieza: Eliminar duplicados
+    if st.checkbox("Eliminar filas duplicadas"):
+        antes = len(df)
+        df = df.drop_duplicates()
+        st.write(f"Filas eliminadas: {antes - len(df)}")
+
+    if st.session_state.etapa == 2:
+        if st.button("Finalizar limpieza y ver Visualización"):
+            avanzar_etapa(4) # Saltamos a la etapa 4 según tu solicitud
+            st.rerun()
+
+# ---------------------------------------------------------
+# ETAPA 4: VISUALIZACIÓN
+# ---------------------------------------------------------
+if st.session_state.etapa >= 4:
+    st.divider()
+    st.header("Etapa 4: Visualización (Correlación)")
+    
+    # Filtrar solo columnas numéricas
+    cols_num = df.select_dtypes(include=['number']).columns.tolist()
+    
+    if len(cols_num) >= 2:
+        st.subheader("Configura tu Diagrama de Correlación")
         columnas_sel = st.multiselect(
-            "Selecciona las columnas para analizar:",
-            options=columnas_numericas,
-            default=columnas_numericas[:min(5, len(columnas_numericas))]
+            "Selecciona las columnas:",
+            options=cols_num,
+            default=cols_num[:min(3, len(cols_num))]
         )
         
         if len(columnas_sel) >= 2:
-            fig, ax = plt.subplots(figsize=(10, 8))
-            corr_matrix = df[columnas_sel].corr()
-            
-            sns.heatmap(
-                corr_matrix, 
-                annot=True, 
-                cmap="coolwarm", 
-                fmt=".2f", 
-                linewidths=0.5,
-                ax=ax
-            )
+            fig, ax = plt.subplots(figsize=(8, 6))
+            sns.heatmap(df[columnas_sel].corr(), annot=True, cmap="YlGnBu", ax=ax)
             st.pyplot(fig)
         else:
-            st.info("Selecciona al menos dos columnas para generar el mapa de calor.")
+            st.warning("Selecciona al menos 2 columnas numéricas.")
     else:
-        st.warning("El archivo no tiene suficientes columnas numéricas para calcular correlaciones.")
+        st.error("No hay suficientes datos numéricos para una correlación.")
 
-else:
-    st.info("Esperando archivo CSV... Por favor, súbelo desde la barra lateral.")
+    if st.button("Reiniciar Aplicación"):
+        st.session_state.etapa = 0
+        st.rerun()
