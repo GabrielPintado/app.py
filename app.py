@@ -3,11 +3,28 @@ import pandas as pd
 import seaborn as sns
 import matplotlib.pyplot as plt
 import plotly.express as px
+import plotly.graph_objects as go
 import numpy as np
 from scipy.stats import zscore
 
-# Configuración y Estilos
+# 1. Configuración de Estilos (CSS) para marcos y contenedores
 st.set_page_config(page_title="DataMaster Pro", layout="wide")
+st.markdown("""
+    <style>
+    .plot-container {
+        border: 2px solid #e6e9ef;
+        border-radius: 10px;
+        padding: 20px;
+        background-color: white;
+        margin-bottom: 20px;
+    }
+    .stMetric {
+        background-color: #f0f2f6;
+        padding: 10px;
+        border-radius: 5px;
+    }
+    </style>
+    """, unsafe_allow_html=True)
 
 # --- NAVEGACIÓN PERSISTENTE ---
 if 'df' not in st.session_state:
@@ -19,108 +36,123 @@ def nav_to(page):
     st.session_state.page = page
 
 st.sidebar.title("🎮 Panel de Control")
-opciones = ["Etapa 0: Carga", "Etapa 1: EDA Profundo", "Etapa 2: Limpieza", "Etapa 4: Visualización"]
-page = st.sidebar.radio("Ir a la etapa:", opciones, index=opciones.index(st.session_state.page))
+page = st.sidebar.radio("Ir a la etapa:", 
+                        ["Etapa 0: Carga", "Etapa 1: EDA Profundo", "Etapa 2: Limpieza", "Etapa 4: Visualización"], 
+                        index=["Etapa 0: Carga", "Etapa 1: EDA Profundo", "Etapa 2: Limpieza", "Etapa 4: Visualización"].index(st.session_state.page))
 st.session_state.page = page
 
-# --- LÓGICA DE ETAPAS ---
-
+# --- ETAPA 0: CARGA ---
 if st.session_state.page == "Etapa 0: Carga":
     st.header("📥 Etapa 0: Ingesta de Datos")
     archivo = st.file_uploader("Sube tu archivo CSV", type=["csv"])
     if archivo:
         st.session_state.df = pd.read_csv(archivo)
-        st.success("✅ ¡Datos cargados!")
-        st.dataframe(st.session_state.df.head(10), use_container_width=True)
-        if st.button("Siguiente: Ir a EDA ➔"): nav_to("Etapa 1: EDA Profundo"); st.rerun()
+        st.success("✅ ¡Datos cargados exitosamente!")
+        with st.container():
+            st.markdown('<div class="plot-container">', unsafe_allow_html=True)
+            st.subheader("Vista Previa del Dataset")
+            st.dataframe(st.session_state.df.head(10), use_container_width=True)
+            st.markdown('</div>', unsafe_allow_html=True)
 
-elif st.session_state.df is None:
-    st.warning("⚠️ Carga un archivo en la Etapa 0.")
+# --- BLOQUEO DE SEGURIDAD ---
+if st.session_state.df is None and st.session_state.page != "Etapa 0: Carga":
+    st.warning("⚠️ Primero carga un archivo en la Etapa 0.")
     st.stop()
 
+# --- ETAPA 1: EDA ---
 elif st.session_state.page == "Etapa 1: EDA Profundo":
-    st.header("📊 Etapa 1: EDA Profundo")
+    st.header("📊 Etapa 1: Análisis Exploratorio")
     df = st.session_state.df
-    st.subheader("📋 Resumen Estadístico")
-    st.dataframe(df.describe().T, use_container_width=True)
     
-    cols_num = df.select_dtypes(include=np.number).columns
-    if not cols_num.empty:
-        selected_col = st.selectbox("Análisis de Distribución:", cols_num)
-        fig = px.histogram(df, x=selected_col, marginal="box", title=f"Distribución de {selected_col}")
-        st.plotly_chart(fig, use_container_width=True)
+    col_stats, col_info = st.columns([2, 1])
+    with col_stats:
+        st.markdown('<div class="plot-container">', unsafe_allow_html=True)
+        st.subheader("Estadísticas Descriptivas")
+        st.dataframe(df.describe().T, use_container_width=True)
+        st.markdown('</div>', unsafe_allow_html=True)
+    
+    with col_info:
+        st.markdown('<div class="plot-container">', unsafe_allow_html=True)
+        st.subheader("Información de Columnas")
+        st.write(f"**Total de registros:** {df.shape[0]}")
+        st.write(f"**Total de variables:** {df.shape[1]}")
+        st.write(df.dtypes)
+        st.markdown('</div>', unsafe_allow_html=True)
 
+# --- ETAPA 2: LIMPIEZA ---
 elif st.session_state.page == "Etapa 2: Limpieza":
     st.header("🧹 Etapa 2: Limpieza y Estandarización")
     df = st.session_state.df.copy()
     
-    # --- SUBSECCIÓN: LIMPIEZA BÁSICA ---
-    col1, col2 = st.columns(2)
-    with col1:
-        st.subheader("1. Gestión de Nulos")
-        metodo = st.selectbox("Estrategia:", ["Ninguna", "Eliminar Filas", "Llenar con Media"])
-        if st.button("Tratar Nulos"):
-            if metodo == "Eliminar Filas": df = df.dropna()
-            elif metodo == "Llenar con Media": df = df.fillna(df.mean(numeric_only=True))
-            st.session_state.df = df
-            st.success("¡Nulos procesados!")
-
-    with col2:
-        st.subheader("2. Outliers (IQR)")
-        cols_num = df.select_dtypes(include=np.number).columns
-        out_col = st.selectbox("Columna para Outliers:", cols_num)
-        if st.button("Limpiar Outliers"):
-            q1, q3 = df[out_col].quantile([0.25, 0.75])
-            iqr = q3 - q1
-            df = df[~((df[out_col] < (q1 - 1.5 * iqr)) | (df[out_col] > (q3 + 1.5 * iqr)))]
-            st.session_state.df = df
-            st.rerun()
-
-    st.divider()
-
-    # --- NUEVA SUBSECCIÓN: ESTANDARIZACIÓN ---
-    st.subheader("3. Estandarización de Datos (Z-Score)")
-    st.markdown("""
-    La estandarización transforma los datos para que tengan **media = 0** y **desviación estándar = 1**. 
-    Es útil para comparar variables con diferentes escalas (ej: Edad vs Salario).
-    """)
-    
-    cols_to_scale = st.multiselect("Selecciona columnas para estandarizar:", cols_num)
-    
-    if st.button("Estandarizar seleccionadas"):
+    st.markdown('<div class="plot-container">', unsafe_allow_html=True)
+    st.subheader("Estandarización Z-Score")
+    cols_num = df.select_dtypes(include=np.number).columns
+    cols_to_scale = st.multiselect("Columnas para normalizar (Media 0, Desv. Est. 1):", cols_num)
+    if st.button("Ejecutar Estandarización"):
         if cols_to_scale:
             for col in cols_to_scale:
-                # Aplicamos Z-score: (x - mean) / std
                 df[f"{col}_std"] = zscore(df[col], ddof=1)
-            
             st.session_state.df = df
-            st.success(f"✅ Se han creado {len(cols_to_scale)} nuevas columnas estandarizadas (con sufijo _std).")
-            st.dataframe(df[[c for c in df.columns if "_std" in c]].head(), use_container_width=True)
-        else:
-            st.warning("Selecciona al menos una columna.")
+            st.success("Columnas estandarizadas añadidas.")
+            st.rerun()
+    st.markdown('</div>', unsafe_allow_html=True)
 
+# --- ETAPA 4: VISUALIZACIÓN ---
 elif st.session_state.page == "Etapa 4: Visualización":
-    st.header("🎨 Etapa 4: Visualización")
+    st.header("🎨 Etapa 4: Laboratorio de Gráficos")
     df = st.session_state.df
     cols_num = df.select_dtypes(include=np.number).columns.tolist()
     cols_cat = df.select_dtypes(exclude=np.number).columns.tolist()
 
-    tipo = st.selectbox("Tipo de Gráfico:", ["Violín", "Boxplot", "Barras con Error", "Correlación"])
+    tipo_grafico = st.selectbox("Seleccione Visualización:", 
+                                ["Violín e Histograma", "Análisis de Boxplot", "Correlación de Pearson", "Barras con Error"])
 
-    if tipo == "Violín":
-        y = st.selectbox("Eje Y (Numérico):", cols_num)
-        x = st.selectbox("Eje X (Categoría):", [None] + cols_cat)
-        st.plotly_chart(px.violin(df, y=y, x=x, box=True, points="all"), use_container_width=True)
+    st.markdown('<div class="plot-container">', unsafe_allow_html=True)
+    
+    if tipo_grafico == "Violín e Histograma":
+        sel_col = st.selectbox("Variable numérica:", cols_num)
+        # Métricas de referencia
+        m1, m2, m3 = st.columns(3)
+        m1.metric("Mínimo", f"{df[sel_col].min():.2f}")
+        m2.metric("Promedio", f"{df[sel_col].mean():.2f}")
+        m3.metric("Máximo", f"{df[sel_col].max():.2f}")
+        
+        fig = px.violin(df, y=sel_col, box=True, points="all", title=f"Distribución Detallada: {sel_col}")
+        fig.update_layout(showlegend=False, margin=dict(l=40, r=40, t=60, b=40), paper_bgcolor="white")
+        st.plotly_chart(fig, use_container_width=True)
 
-    elif tipo == "Boxplot":
-        y = st.selectbox("Eje Y (Numérico):", cols_num)
-        st.plotly_chart(px.box(df, y=y, notched=True), use_container_width=True)
+    elif tipo_grafico == "Análisis de Boxplot":
+        sel_col = st.selectbox("Variable numérica:", cols_num)
+        cat_col = st.selectbox("Comparar por (Opcional):", [None] + cols_cat)
+        
+        fig = px.box(df, y=sel_col, x=cat_col, notched=True, points="outliers",
+                     title=f"Límites y Outliers: {sel_col} por {cat_col if cat_col else 'Total'}")
+        fig.update_layout(xaxis_title=cat_col if cat_col else "General", yaxis_title=sel_col)
+        fig.update_traces(marker_color='#007bff')
+        st.plotly_chart(fig, use_container_width=True)
 
-    elif tipo == "Barras con Error":
+    elif tipo_grafico == "Correlación de Pearson":
+        st.subheader("Matriz de Relaciones Lineales")
+        corr = df[cols_num].corr()
+        fig = px.imshow(corr, text_auto=".2f", aspect="auto", 
+                        color_continuous_scale='RdBu_r', range_color=[-1, 1],
+                        title="Marcos de Correlación (Límite -1 a 1)")
+        st.plotly_chart(fig, use_container_width=True)
+
+    elif tipo_grafico == "Barras con Error":
         x_col = st.selectbox("Categoría:", cols_cat)
-        y_col = st.selectbox("Valor:", cols_num)
-        df_err = df.groupby(x_col)[y_col].agg(['mean', 'std']).reset_index()
-        st.plotly_chart(px.bar(df_err, x=x_col, y='mean', error_y='std', title="Media con Desviación Estándar"), use_container_width=True)
+        y_col = st.selectbox("Medida Numérica:", cols_num)
+        
+        df_stats = df.groupby(x_col)[y_col].agg(['mean', 'std']).reset_index()
+        fig = px.bar(df_stats, x=x_col, y='mean', error_y='std',
+                     title=f"Promedio de {y_col} con Margen de Error (Std Dev)",
+                     labels={'mean': 'Promedio', x_col: x_col.capitalize()})
+        fig.update_layout(yaxis_gridcolor='lightgray')
+        st.plotly_chart(fig, use_container_width=True)
 
-    elif tipo == "Correlación":
-        st.plotly_chart(px.imshow(df[cols_num].corr(), text_auto=True, color_continuous_scale='RdBu_r'), use_container_width=True)
+    st.markdown('</div>', unsafe_allow_html=True)
+
+    # Botón de Descarga
+    st.sidebar.markdown("---")
+    csv = df.to_csv(index=False).encode('utf-8')
+    st.sidebar.download_button("💾 Descargar Dataset Procesado", data=csv, file_name="data_procesada.csv", mime='text/csv')
